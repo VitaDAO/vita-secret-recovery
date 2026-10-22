@@ -1,0 +1,77 @@
+{
+  "cvm-version": "0.14.16",
+  "cpus": 2,
+  "memory": 4096,
+  "networks": {
+    "recovery": {
+      "egress": "closed"
+    }
+  },
+  "containers": [
+    {
+      "name": "recovery",
+      "image": "ghcr.io/vitadao/vita-agent@sha256:9ed976e0a1682fee129fab779c142700efb6d69de7b3b18ce73d7b418f1f4bcc",
+      "networks": [
+        "recovery"
+      ],
+      "entrypoint": [
+        "/opt/venv/bin/python"
+      ],
+      "command": [
+        "-c",
+        "\"\"\"Run only in an independently attested, exact-config recovery enclave.\"\"\"\nimport base64, json, os\nfrom http.server import BaseHTTPRequestHandler, HTTPServer\nfrom cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey\nfrom cryptography.hazmat.primitives import hashes, serialization\nfrom cryptography.hazmat.primitives.kdf.hkdf import HKDF\nfrom cryptography.hazmat.primitives.ciphers.aead import AESGCM\nDOMAIN = b'vita-enclave-recovery-v1'\ndef seal(values, recipient, recovery_id):\n    ephemeral = X25519PrivateKey.generate()\n    epk = ephemeral.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)\n    shared = ephemeral.exchange(X25519PublicKey.from_public_bytes(recipient))\n    key = HKDF(algorithm=hashes.SHA256(), length=32, salt=None, info=DOMAIN + recipient + epk).derive(shared)\n    nonce = os.urandom(12)\n    aad = DOMAIN + recovery_id.encode()\n    cipher = AESGCM(key).encrypt(nonce, json.dumps(values, sort_keys=True).encode(), aad)\n    return {k:base64.b64encode(v).decode() for k,v in {'epk':epk,'nonce':nonce,'ciphertext':cipher}.items()} | {'version':1,'recovery_id':recovery_id}\ndef main():\n    names = json.loads(os.environ['RECOVERY_NAMES'])\n    if not names or len(names) != len(set(names)): raise ValueError('invalid allowlist')\n    recipient = bytes.fromhex(os.environ['RECOVERY_RECIPIENT'])\n    if len(recipient) != 32: raise ValueError('invalid recipient')\n    values = {name:os.environ[name] for name in names} # Missing input fails before serving.\n    if any(not value for value in values.values()): raise ValueError('empty required value')\n    envelope = json.dumps(seal(values, recipient, os.environ['RECOVERY_ID'])).encode()\n    for name in names: os.environ.pop(name, None)\n    values.clear()\n    class Handler(BaseHTTPRequestHandler):\n        def log_message(self, *args): pass\n        def do_GET(self):\n            if self.path == '/health': body, status = b'{\"ready\":true}', 200\n            elif self.path == '/recover': body, status = envelope, 200\n            else: body, status = b'{}', 404\n            self.send_response(status)\n            self.send_header('Content-Type', 'application/json')\n            self.send_header('Cache-Control', 'no-store')\n            self.send_header('Content-Length', str(len(body)))\n            self.end_headers(); self.wfile.write(body)\n    HTTPServer(('0.0.0.0', 8080), Handler).serve_forever()\nif __name__ == '__main__': main()\n"
+      ],
+      "env": [
+        {
+          "RECOVERY_NAMES": "[\"CONNECTION_TOKEN_KEK\", \"STAGING_CONNECTION_TOKEN_KEK\", \"OURA_CLIENT_ID\", \"OURA_CLIENT_SECRET\", \"WHOOP_CLIENT_ID\", \"WHOOP_CLIENT_SECRET\", \"WITHINGS_CLIENT_ID\", \"WITHINGS_CLIENT_SECRET\", \"SUPABASE_INTERNAL_AUTH_EMAIL\", \"SUPABASE_INTERNAL_AUTH_PASSWORD\", \"STAGING_SUPABASE_INTERNAL_AUTH_EMAIL\", \"STAGING_SUPABASE_INTERNAL_AUTH_PASSWORD\", \"VITA_PROTOCOL_TICKET_HMAC_KEY\", \"PRODUCTION_VITA_MCP_GRANT_PRIVATE_KEY\", \"STAGING_VITA_MCP_GRANT_PRIVATE_KEY\", \"VITA_AGENT_GHCR_TOKEN\", \"VITA_INGEST_GHCR_TOKEN\", \"PHALA_API_KEY\", \"TINFOIL_API_KEY\", \"PRIVATEMODE_API_KEY\", \"VITA_AGENT_EXA_API_KEY\", \"FIRECRAWL_API_KEY\", \"SUPABASE_URL\", \"SUPABASE_ANON_KEY\", \"SUPABASE_SERVICE_ROLE_KEY\", \"STAGING_SUPABASE_URL\", \"STAGING_SUPABASE_PUBLISHABLE_KEY\", \"STAGING_SUPABASE_SECRET_KEY\", \"SENTRY_DSN\", \"POSTHOG_PROJECT_KEY\", \"POSTHOG_STAGING_PROJECT_KEY\"]"
+        },
+        {
+          "RECOVERY_RECIPIENT": "aee2d2aa48bebe8ae1e410b67bbdcde621f2f038c1545c8c60466517943e0146"
+        },
+        {
+          "RECOVERY_ID": "vita-originals-20261023"
+        }
+      ],
+      "secrets": [
+        "CONNECTION_TOKEN_KEK",
+        "STAGING_CONNECTION_TOKEN_KEK",
+        "OURA_CLIENT_ID",
+        "OURA_CLIENT_SECRET",
+        "WHOOP_CLIENT_ID",
+        "WHOOP_CLIENT_SECRET",
+        "WITHINGS_CLIENT_ID",
+        "WITHINGS_CLIENT_SECRET",
+        "SUPABASE_INTERNAL_AUTH_EMAIL",
+        "SUPABASE_INTERNAL_AUTH_PASSWORD",
+        "STAGING_SUPABASE_INTERNAL_AUTH_EMAIL",
+        "STAGING_SUPABASE_INTERNAL_AUTH_PASSWORD",
+        "VITA_PROTOCOL_TICKET_HMAC_KEY",
+        "PRODUCTION_VITA_MCP_GRANT_PRIVATE_KEY",
+        "STAGING_VITA_MCP_GRANT_PRIVATE_KEY",
+        "VITA_AGENT_GHCR_TOKEN",
+        "VITA_INGEST_GHCR_TOKEN",
+        "PHALA_API_KEY",
+        "TINFOIL_API_KEY",
+        "PRIVATEMODE_API_KEY",
+        "VITA_AGENT_EXA_API_KEY",
+        "FIRECRAWL_API_KEY",
+        "SUPABASE_URL",
+        "SUPABASE_ANON_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "STAGING_SUPABASE_URL",
+        "STAGING_SUPABASE_PUBLISHABLE_KEY",
+        "STAGING_SUPABASE_SECRET_KEY",
+        "SENTRY_DSN",
+        "POSTHOG_PROJECT_KEY",
+        "POSTHOG_STAGING_PROJECT_KEY"
+      ]
+    }
+  ],
+  "shim": {
+    "upstream-port": 8080,
+    "paths": [
+      "/health",
+      "/recover"
+    ]
+  }
+}
